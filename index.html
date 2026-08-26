@@ -29,7 +29,17 @@
     <h2 class="section-title">単語帳を選ぶ</h2>
     <div class="decks" id="deckList"></div>
 
+    <h2 class="section-title">読む・調べる</h2>
+    <div class="menu" id="menuList">
+      <button class="menucard" data-go="book-en2ja"><span class="menucard__icon">📗</span><span class="menucard__body"><span class="menucard__title">英→日 単語帳</span><span class="menucard__sub">英語から意味を確認する</span></span></button>
+      <button class="menucard" data-go="book-ja2en"><span class="menucard__icon">📕</span><span class="menucard__body"><span class="menucard__title">日→英 単語帳</span><span class="menucard__sub">日本語から英語を思い出す</span></span></button>
+      <button class="menucard" data-go="book-phrases"><span class="menucard__icon">📙</span><span class="menucard__body"><span class="menucard__title">熟語帳</span><span class="menucard__sub">句動詞・熟語 80項目</span></span></button>
+      <button class="menucard" data-go="index"><span class="menucard__icon">🔤</span><span class="menucard__body"><span class="menucard__title">索引</span><span class="menucard__sub">アルファベット順にすべて引く</span></span></button>
+      <button class="menucard" data-go="passages"><span class="menucard__icon">📖</span><span class="menucard__body"><span class="menucard__title">丸暗記（長文）</span><span class="menucard__sub">全320項目を8本の英文で読む</span></span></button>
+    </div>
+
     <div class="datatools">
+      <button class="linkbtn" id="photoBtn">写真を表示：オン</button>
       <button class="linkbtn" id="exportBtn">学習データを書き出す</button>
       <button class="linkbtn" id="importBtn">学習データを読み込む</button>
       <button class="linkbtn linkbtn--danger" id="resetBtn">学習データを消す</button>
@@ -98,12 +108,59 @@
     <ul class="wordlist" id="wordList"></ul>
   </section>
 
+
+  <!-- ===== 単語帳（英→日 / 日→英 / 熟語帳） ===== -->
+  <section class="view" id="view-book" hidden>
+    <input type="search" class="search" id="bookSearch" placeholder="単語・意味・例文で検索" autocomplete="off">
+    <div class="bookbar">
+      <div class="segmented segmented--wrap" id="bookScope"></div>
+      <label class="switch"><input type="checkbox" id="bookHide"><span>答えを隠す</span></label>
+    </div>
+    <p class="counter" id="bookCounter"></p>
+    <ul class="booklist" id="bookList"></ul>
+  </section>
+
+  <!-- ===== 索引 ===== -->
+  <section class="view" id="view-index" hidden>
+    <input type="search" class="search" id="indexSearch" placeholder="英語・日本語で検索" autocomplete="off">
+    <nav class="alphabar" id="alphaBar"></nav>
+    <p class="counter" id="indexCounter"></p>
+    <div id="indexBody"></div>
+  </section>
+
+  <!-- ===== 丸暗記（長文）一覧 ===== -->
+  <section class="view" id="view-passages" hidden>
+    <p class="lead">単語帳・熟語帳の全320項目を、8本の英文で残らず読めるようにしたページです。1本およそ500語。単語をタップすると意味が出ます。</p>
+    <div class="menu" id="passageList"></div>
+  </section>
+
+  <!-- ===== 丸暗記（長文）本文 ===== -->
+  <section class="view" id="view-passage" hidden>
+    <div class="ptools">
+      <label class="switch"><input type="checkbox" id="pShowJa"><span>和訳を表示</span></label>
+      <button class="linkbtn" id="pSpeakBtn">🔊 通しで読み上げ</button>
+    </div>
+    <article class="passage" id="passageBody"></article>
+    <h3 class="section-title" id="passageItemsTitle"></h3>
+    <ul class="booklist" id="passageItems"></ul>
+  </section>
+
 </main>
+
+<!-- ===== 単語の詳細（下から出るシート） ===== -->
+<div class="sheet" id="wordSheet" hidden>
+  <div class="sheet__backdrop" id="sheetBackdrop"></div>
+  <div class="sheet__panel" id="sheetPanel" role="dialog" aria-modal="true" aria-label="単語の詳細"></div>
+</div>
+
 
 <script src="js/data/deck-600.js"></script>
 <script src="js/data/deck-730.js"></script>
 <script src="js/data/deck-860.js"></script>
 <script src="js/data/deck-phrases.js"></script>
+<script src="js/data/images.js"></script>
+<script src="js/data/passages.js"></script>
+<script src="js/images.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

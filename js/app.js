@@ -138,7 +138,13 @@
   // ============================================================
   // 画面切り替え
   // ============================================================
-  var VIEWS = ['home', 'deck', 'flash', 'quiz', 'result', 'list'];
+  var VIEWS = ['home', 'deck', 'flash', 'quiz', 'result', 'list', 'book', 'index', 'passages', 'passage'];
+
+  /* どの画面から戻るとどこへ行くか */
+  var PARENT = {
+    deck: 'home', flash: 'deck', quiz: 'deck', result: 'deck', list: 'deck',
+    book: 'home', index: 'home', passages: 'home', passage: 'passages'
+  };
   var current = 'home';
 
   function show(name, title) {
@@ -288,12 +294,14 @@
       ? '<div class="meaning"><span class="pos">' + esc(word.pos) + '</span>' + esc(word.m) + '</div>'
       : '<div class="meaning">' + esc(word.w) + (word.p ? ' <span class="phonetic">/' + esc(word.p) + '/</span>' : '') + '</div>';
 
+    back = '<div class="card__img" id="cardImg"></div>' + back;
     back += '<div class="example"><div class="en">' + esc(word.e) + '</div>' +
             '<div class="ja">' + esc(word.j) + '</div></div>' +
             '<button class="speakbtn" data-speak="' + esc(word.e) + '">🔊 例文を聞く</button>';
 
     $('cardBack').innerHTML = back;
     $('cardBack').hidden = false;
+    VocabImage.render($('cardImg'), word.w, true);
     $('cardHint').hidden = true;
     $('answerBtns').hidden = false;
 
@@ -487,11 +495,277 @@
   }
 
   // ============================================================
+  // 見出し語の索引（本文中の単語を引くために使う）
+  // ============================================================
+  var BY_WORD = {};
+  ALL.forEach(function (word) { BY_WORD[word.w.toLowerCase()] = word; });
+
+  /* 不規則変化。本文の broke / brought などを見出し語に結びつける */
+  var IRREGULAR = {
+    oversee: ['oversaw', 'overseen'], 'break': ['broke', 'broken'], bring: ['brought'],
+    'catch': ['caught'], come: ['came'], fall: ['fell'], get: ['got', 'gotten'],
+    give: ['gave', 'given'], go: ['went', 'gone'], make: ['made'], run: ['ran'],
+    take: ['took', 'taken'], keep: ['kept'], hold: ['held'], deal: ['dealt'],
+    'put': ['put'], 'set': ['set'], 'cut': ['cut'], pay: ['paid'], send: ['sent']
+  };
+
+  function stemOf(s) { return String(s).toLowerCase().replace(/(e|y)$/, ''); }
+
+  /** 本文の1語が見出し語 head の変化形かどうか */
+  function isFormOf(token, head) {
+    var t = token.toLowerCase();
+    if (t === head) return true;
+    var irr = IRREGULAR[head];
+    if (irr && irr.indexOf(t) >= 0) return true;
+    var st = stemOf(head);
+    return st.length > 2 && t.indexOf(st) === 0;
+  }
+
+  var BE = ['be', 'am', 'is', 'are', 'was', 'were', 'been', 'being'];
+
+  /**
+   * words[from] から項目 item が始まっているか調べる。
+   * 語の間には it / them / the などの割り込みを1語まで許す。
+   * @returns {number|null} 一致した最後の位置
+   */
+  function matchAt(words, from, item) {
+    var toks = item.split(' ');
+    if (toks[0] === 'be') {
+      if (BE.indexOf(words[from]) < 0) return null;
+      toks = toks.slice(1);
+      from++;
+      if (from >= words.length) return null;
+    }
+    if (!isFormOf(words[from], toks[0])) return null;
+    var pos = from;
+    for (var i = 1; i < toks.length; i++) {
+      if (words[pos + 1] === toks[i]) { pos += 1; continue; }
+      if (words[pos + 2] === toks[i]) { pos += 2; continue; }  // 1語の割り込みを許す
+      return null;
+    }
+    return pos;
+  }
+
+  // ============================================================
+  // 単語の詳細シート
+  // ============================================================
+  function openSheet(word) {
+    if (!word) return;
+    $('sheetPanel').innerHTML =
+      '<div class="sheet__grab"></div>' +
+      '<div class="sheet__img" id="sheetImg"></div>' +
+      '<div class="sheet__w">' + esc(word.w) + '</div>' +
+      (word.p ? '<div class="sheet__p">/' + esc(word.p) + '/</div>' : '') +
+      '<div class="sheet__m"><span class="pos">' + esc(word.pos) + '</span>' + esc(word.m) + '</div>' +
+      '<div class="example"><div class="en">' + esc(word.e) + '</div><div class="ja">' + esc(word.j) + '</div></div>' +
+      '<div class="sheet__btns">' +
+        '<button class="linkbtn" data-speak="' + esc(word.w) + '">🔊 単語</button>' +
+        '<button class="linkbtn" data-speak="' + esc(word.e) + '">🔊 例文</button>' +
+        '<button class="linkbtn" id="sheetClose">閉じる</button>' +
+      '</div>' +
+      '<p class="sheet__deck">' + esc(word.deckTitle) + '</p>';
+    $('wordSheet').hidden = false;
+    VocabImage.render($('sheetImg'), word.w, true);
+  }
+
+  function closeSheet() { $('wordSheet').hidden = true; }
+
+  // ============================================================
+  // 単語帳（英→日 / 日→英 / 熟語帳）
+  // ============================================================
+  var BOOKS = {
+    'book-en2ja':   { title: '英→日 単語帳', mode: 'en2ja',   decks: ['toeic600', 'toeic730', 'toeic860', 'phrases'] },
+    'book-ja2en':   { title: '日→英 単語帳', mode: 'ja2en',   decks: ['toeic600', 'toeic730', 'toeic860', 'phrases'] },
+    'book-phrases': { title: '熟語帳',       mode: 'en2ja',   decks: ['phrases'] }
+  };
+  var book = null, bookScope = 'all', bookHidden = false;
+
+  function openBook(key) {
+    book = BOOKS[key];
+    bookScope = 'all';
+    bookHidden = (book.mode === 'ja2en');
+    $('bookHide').checked = bookHidden;
+    $('bookSearch').value = '';
+
+    var scopes = book.decks.length > 1
+      ? [{ id: 'all', label: 'すべて' }].concat(book.decks.map(function (id) {
+          var d = deckById(id);
+          return { id: id, label: d ? d.title.replace('TOEIC ', '').replace('レベル', '') : id };
+        }))
+      : [];
+    $('bookScope').innerHTML = scopes.map(function (s, i) {
+      return '<button data-scope="' + esc(s.id) + '"' + (i === 0 ? ' class="is-active"' : '') + '>' + esc(s.label) + '</button>';
+    }).join('');
+    $('bookScope').hidden = !scopes.length;
+
+    renderBook();
+    show('book', book.title);
+  }
+
+  function deckById(id) {
+    return DECKS.filter(function (d) { return d.id === id; })[0];
+  }
+
+  function bookWords() {
+    return ALL.filter(function (w) {
+      if (book.decks.indexOf(w.deckId) < 0) return false;
+      return bookScope === 'all' || w.deckId === bookScope;
+    });
+  }
+
+  function renderBook() {
+    var q = $('bookSearch').value.trim().toLowerCase();
+    var words = bookWords().filter(function (w) {
+      return !q || (w.w + ' ' + w.m + ' ' + w.e + ' ' + w.j).toLowerCase().indexOf(q) >= 0;
+    });
+    $('bookCounter').textContent = words.length + '項目' + (bookHidden ? '（タップで答えを表示）' : '');
+    $('bookList').innerHTML = words.length
+      ? words.map(function (w) { return bookItem(w, book.mode); }).join('')
+      : '<li class="empty">該当する項目がありません</li>';
+  }
+
+  function bookItem(word, mode) {
+    var emoji = VocabImage.emojiOf(word.w);
+    var face = mode === 'ja2en'
+      ? '<div class="bk__front"><span class="bk__ja">' + esc(word.m) + '</span></div>' +
+        '<div class="bk__back"><span class="bk__w">' + esc(word.w) + '</span>' +
+        (word.p ? '<span class="bk__p">/' + esc(word.p) + '/</span>' : '') + '</div>'
+      : '<div class="bk__front"><span class="bk__w">' + esc(word.w) + '</span>' +
+        (word.p ? '<span class="bk__p">/' + esc(word.p) + '/</span>' : '') + '</div>' +
+        '<div class="bk__back"><span class="pos">' + esc(word.pos) + '</span>' + esc(word.m) + '</div>';
+
+    return '<li class="bk' + (bookHidden ? ' is-hidden' : '') + '" data-word="' + esc(word.w) + '">' +
+      '<span class="bk__emoji" aria-hidden="true">' + esc(emoji) + '</span>' +
+      '<div class="bk__body">' + face +
+        '<div class="bk__ex"><span class="en">' + esc(word.e) + '</span><span class="ja">' + esc(word.j) + '</span></div>' +
+      '</div></li>';
+  }
+
+  // ============================================================
+  // 索引
+  // ============================================================
+  function openIndex() {
+    $('indexSearch').value = '';
+    renderIndex();
+    show('index', '索引');
+  }
+
+  function renderIndex() {
+    var q = $('indexSearch').value.trim().toLowerCase();
+    var words = ALL.filter(function (w) {
+      return !q || (w.w + ' ' + w.m).toLowerCase().indexOf(q) >= 0;
+    }).slice().sort(function (a, b) {
+      return a.w.toLowerCase().localeCompare(b.w.toLowerCase(), 'en');
+    });
+
+    var groups = {}, order = [];
+    words.forEach(function (w) {
+      var k = w.w.charAt(0).toUpperCase();
+      if (!groups[k]) { groups[k] = []; order.push(k); }
+      groups[k].push(w);
+    });
+
+    $('indexCounter').textContent = words.length + '項目';
+    $('alphaBar').innerHTML = order.map(function (k) {
+      return '<a href="#ix-' + esc(k) + '">' + esc(k) + '</a>';
+    }).join('');
+
+    $('indexBody').innerHTML = order.length ? order.map(function (k) {
+      return '<section class="ixgroup"><h3 class="ixgroup__h" id="ix-' + esc(k) + '">' + esc(k) + '</h3><ul class="ixlist">' +
+        groups[k].map(function (w) {
+          return '<li class="ixrow" data-word="' + esc(w.w) + '">' +
+            '<span class="ixrow__e">' + esc(VocabImage.emojiOf(w.w)) + '</span>' +
+            '<span class="ixrow__w">' + esc(w.w) + '</span>' +
+            '<span class="ixrow__m">' + esc(w.m) + '</span></li>';
+        }).join('') + '</ul></section>';
+    }).join('') : '<p class="empty">該当する項目がありません</p>';
+  }
+
+  // ============================================================
+  // 丸暗記（長文）
+  // ============================================================
+  var PASSAGES = window.VOCAB_PASSAGES || [];
+  var activePassage = null;
+
+  function openPassages() {
+    $('passageList').innerHTML = PASSAGES.map(function (p) {
+      var words = p.paras.reduce(function (n, x) { return n + x.en.split(/\s+/).length; }, 0);
+      return '<button class="menucard" data-passage="' + esc(p.id) + '">' +
+        '<span class="menucard__icon">📄</span>' +
+        '<span class="menucard__body">' +
+          '<span class="menucard__title">' + esc(p.title) + '</span>' +
+          '<span class="menucard__sub">' + esc(p.titleJa) + '　/　' + esc(p.scope) + '</span>' +
+          '<span class="menucard__meta">約' + words + '語　覚える項目 ' + p.items.length + '</span>' +
+        '</span></button>';
+    }).join('');
+    show('passages', '丸暗記（長文）');
+  }
+
+  function openPassage(id) {
+    activePassage = PASSAGES.filter(function (p) { return p.id === id; })[0];
+    if (!activePassage) return;
+    $('pShowJa').checked = false;
+    renderPassage();
+    $('passageItemsTitle').textContent = 'この英文で覚える' + activePassage.items.length + '項目';
+    $('passageItems').innerHTML = activePassage.items.map(function (it) {
+      var w = BY_WORD[it.toLowerCase()];
+      return w ? bookItem(w, 'en2ja') : '';
+    }).join('');
+    show('passage', activePassage.title);
+  }
+
+  function renderPassage() {
+    var showJa = $('pShowJa').checked;
+    $('passageBody').classList.toggle('passage--ja', showJa);
+    $('passageBody').innerHTML = activePassage.paras.map(function (para, i) {
+      return '<div class="para">' +
+        '<p class="para__en">' + markUp(para.en, activePassage.items) + '</p>' +
+        '<p class="para__ja">' + esc(para.ja) + '</p>' +
+        '<button class="para__speak linkbtn" data-speak="' + esc(para.en) + '">🔊 この段落</button>' +
+        '</div>';
+    }).join('');
+  }
+
+  /** 本文中の見出し語に印をつける（タップで意味が出る） */
+  function markUp(text, items) {
+    var parts = text.match(/[A-Za-z][A-Za-z'-]*|[^A-Za-z]+/g) || [];
+    var isWord = parts.map(function (t) { return /^[A-Za-z]/.test(t); });
+    var idx = [], lower = [];
+    parts.forEach(function (t, i) { if (isWord[i]) { idx.push(i); lower.push(t.toLowerCase()); } });
+
+    var sorted = items.slice().sort(function (a, b) { return b.split(' ').length - a.split(' ').length; });
+    var mark = {};   // 単語位置 -> 項目名
+    var span = {};   // 単語位置 -> その項目の何番目か（最後なら 'end'）
+
+    for (var i = 0; i < lower.length; i++) {
+      if (mark[i] !== undefined) continue;
+      for (var k = 0; k < sorted.length; k++) {
+        var end = matchAt(lower, i, sorted[k]);
+        if (end !== null) {
+          for (var x = i; x <= end; x++) { mark[x] = sorted[k]; span[x] = (x === end ? 'end' : 'mid'); }
+          i = end;
+          break;
+        }
+      }
+    }
+
+    var wpos = -1;
+    return parts.map(function (t, i) {
+      if (!isWord[i]) return esc(t);
+      wpos++;
+      if (mark[wpos] === undefined) return esc(t);
+      return '<mark class="tw" data-item="' + esc(mark[wpos]) + '">' + esc(t) + '</mark>';
+    }).join('');
+  }
+
+  // ============================================================
   // イベント登録
   // ============================================================
   $('backBtn').addEventListener('click', function () {
-    if (current === 'home') return;
-    if (current === 'deck') { renderHome(); show('home'); return; }
+    var to = PARENT[current];
+    if (!to) return;
+    if (to === 'home') { renderHome(); show('home'); return; }
+    if (to === 'passages') { openPassages(); return; }
     openDeck(activeDeck);
   });
 
@@ -571,6 +845,94 @@
     if (item) speak(item.dataset.speak);
   });
 
+  // ---- 読む・調べる ----
+  $('menuList').addEventListener('click', function (ev) {
+    var btn = ev.target.closest('[data-go]');
+    if (!btn) return;
+    var go = btn.dataset.go;
+    if (go === 'index') openIndex();
+    else if (go === 'passages') openPassages();
+    else openBook(go);
+  });
+
+  $('bookSearch').addEventListener('input', renderBook);
+
+  $('bookScope').addEventListener('click', function (ev) {
+    var btn = ev.target.closest('[data-scope]');
+    if (!btn) return;
+    bookScope = btn.dataset.scope;
+    Array.prototype.forEach.call(this.children, function (b) {
+      b.classList.toggle('is-active', b === btn);
+    });
+    renderBook();
+  });
+
+  $('bookHide').addEventListener('change', function () {
+    bookHidden = this.checked;
+    renderBook();
+  });
+
+  $('bookList').addEventListener('click', function (ev) {
+    var li = ev.target.closest('.bk');
+    if (!li) return;
+    if (li.classList.contains('is-hidden')) { li.classList.remove('is-hidden'); return; }
+    openSheet(BY_WORD[li.dataset.word.toLowerCase()]);
+  });
+
+  $('indexSearch').addEventListener('input', renderIndex);
+
+  $('indexBody').addEventListener('click', function (ev) {
+    var row = ev.target.closest('[data-word]');
+    if (row) openSheet(BY_WORD[row.dataset.word.toLowerCase()]);
+  });
+
+  $('passageList').addEventListener('click', function (ev) {
+    var btn = ev.target.closest('[data-passage]');
+    if (btn) openPassage(btn.dataset.passage);
+  });
+
+  $('pShowJa').addEventListener('change', renderPassage);
+
+  $('pSpeakBtn').addEventListener('click', function () {
+    if (!activePassage) return;
+    speak(activePassage.paras.map(function (x) { return x.en; }).join(' '));
+  });
+
+  $('passageBody').addEventListener('click', function (ev) {
+    var sp = ev.target.closest('[data-speak]');
+    if (sp) { speak(sp.dataset.speak); return; }
+    var tw = ev.target.closest('.tw');
+    if (tw) openSheet(BY_WORD[tw.dataset.item.toLowerCase()]);
+  });
+
+  $('passageItems').addEventListener('click', function (ev) {
+    var li = ev.target.closest('.bk');
+    if (li) openSheet(BY_WORD[li.dataset.word.toLowerCase()]);
+  });
+
+  // ---- 単語の詳細シート ----
+  $('sheetBackdrop').addEventListener('click', closeSheet);
+
+  $('sheetPanel').addEventListener('click', function (ev) {
+    if (ev.target.id === 'sheetClose') { closeSheet(); return; }
+    var sp = ev.target.closest('[data-speak]');
+    if (sp) speak(sp.dataset.speak);
+  });
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' && !$('wordSheet').hidden) closeSheet();
+  });
+
+  // ---- 写真表示の切り替え ----
+  function syncPhotoBtn() {
+    $('photoBtn').textContent = '写真を表示：' + (VocabImage.photosEnabled() ? 'オン' : 'オフ');
+  }
+
+  $('photoBtn').addEventListener('click', function () {
+    VocabImage.setPhotosEnabled(!VocabImage.photosEnabled());
+    syncPhotoBtn();
+  });
+
   $('exportBtn').addEventListener('click', exportData);
   $('importBtn').addEventListener('click', function () { $('importFile').click(); });
   $('importFile').addEventListener('change', function () {
@@ -594,6 +956,7 @@
 
   // ---- 起動 ----
   $('soundBtn').setAttribute('aria-pressed', String(soundOn));
+  syncPhotoBtn();
   renderHome();
   show('home');
 })();
