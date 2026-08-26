@@ -301,7 +301,7 @@
 
     $('cardBack').innerHTML = back;
     $('cardBack').hidden = false;
-    VocabImage.render($('cardImg'), word.w, true);
+    VocabImage.render($('cardImg'), word.w);
     $('cardHint').hidden = true;
     $('answerBtns').hidden = false;
 
@@ -565,7 +565,7 @@
       '</div>' +
       '<p class="sheet__deck">' + esc(word.deckTitle) + '</p>';
     $('wordSheet').hidden = false;
-    VocabImage.render($('sheetImg'), word.w, true);
+    VocabImage.render($('sheetImg'), word.w);
   }
 
   function closeSheet() { $('wordSheet').hidden = true; }
@@ -625,7 +625,6 @@
   }
 
   function bookItem(word, mode) {
-    var emoji = VocabImage.emojiOf(word.w);
     var face = mode === 'ja2en'
       ? '<div class="bk__front"><span class="bk__ja">' + esc(word.m) + '</span></div>' +
         '<div class="bk__back"><span class="bk__w">' + esc(word.w) + '</span>' +
@@ -635,7 +634,7 @@
         '<div class="bk__back"><span class="pos">' + esc(word.pos) + '</span>' + esc(word.m) + '</div>';
 
     return '<li class="bk' + (bookHidden ? ' is-hidden' : '') + '" data-word="' + esc(word.w) + '">' +
-      '<span class="bk__emoji" aria-hidden="true">' + esc(emoji) + '</span>' +
+      VocabImage.thumbHtml(word.w) +
       '<div class="bk__body">' + face +
         '<div class="bk__ex"><span class="en">' + esc(word.e) + '</span><span class="ja">' + esc(word.j) + '</span></div>' +
       '</div></li>';
@@ -923,16 +922,6 @@
     if (ev.key === 'Escape' && !$('wordSheet').hidden) closeSheet();
   });
 
-  // ---- 写真表示の切り替え ----
-  function syncPhotoBtn() {
-    $('photoBtn').textContent = '写真を表示：' + (VocabImage.photosEnabled() ? 'オン' : 'オフ');
-  }
-
-  $('photoBtn').addEventListener('click', function () {
-    VocabImage.setPhotosEnabled(!VocabImage.photosEnabled());
-    syncPhotoBtn();
-  });
-
   $('exportBtn').addEventListener('click', exportData);
   $('importBtn').addEventListener('click', function () { $('importFile').click(); });
   $('importFile').addEventListener('change', function () {
@@ -956,7 +945,6 @@
 
   // ---- 起動 ----
   $('soundBtn').setAttribute('aria-pressed', String(soundOn));
-  syncPhotoBtn();
   renderHome();
   show('home');
 })();
